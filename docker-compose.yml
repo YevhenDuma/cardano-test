@@ -1,0 +1,113 @@
+version: "3.5"
+
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_LOGGING=true
+      - POSTGRES_DB_FILE=/run/secrets/postgres_db
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+      - POSTGRES_USER_FILE=/run/secrets/postgres_user
+    secrets:
+      - postgres_password
+      - postgres_user
+      - postgres_db
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    restart: on-failure
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+
+  cardano-node:
+    image: inputoutput/cardano-node:1.30.1
+    environment:
+      - NETWORK=${NETWORK:-mainnet}
+    volumes:
+      - node-db:/data/db
+      - node-ipc:/ipc
+    restart: on-failure
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+
+  cardano-db-sync:
+    image: inputoutput/cardano-db-sync:11.0.4
+    environment:
+      - NETWORK=${NETWORK:-mainnet}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - RESTORE_SNAPSHOT=${RESTORE_SNAPSHOT:-}
+      - RESTORE_RECREATE_DB=N
+    depends_on:
+      - cardano-node
+      - postgres
+    secrets:
+      - postgres_password
+      - postgres_user
+      - postgres_db
+    volumes:
+      - db-sync-tmp:/tmp
+      - db-sync-data:/var/lib/cdbsync
+      - node-ipc:/node-ipc
+    restart: on-failure
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+
+  cardano-submit-api:
+    image: inputoutput/cardano-submit-api:1.30.0
+    environment:
+      - NETWORK=${NETWORK:-mainnet}
+    depends_on:
+      - cardano-node
+    volumes:
+      - node-ipc:/node-ipc
+    ports:
+      - 8090:8090
+    restart: on-failure
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "10"
+
+  yoroi-graphql-migration-backend:
+    image: emurgornd/yoroi-graphql-migration-backend:1.1.3-pre1
+    ports:
+      - 8080:8080
+    depends_on:
+      - cardano-node
+      - cardano-db-sync
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_PASSWORD=v8hlDV0yMAHHlIurYupj
+      - POSTGRES_USER=postgres
+      - PORT=8080
+    secrets:
+      - postgres_password
+      - postgres_user
+      - postgres_db
+
+
+secrets:
+  postgres_db:
+    file: ./config/secrets/postgres_db
+  postgres_password:
+    file: ./config/secrets/postgres_password
+  postgres_user:
+    file: ./config/secrets/postgres_user
+
+volumes:
+  db-sync-data:
+  db-sync-tmp:
+  postgres:
+  node-db:
+  node-ipc:
